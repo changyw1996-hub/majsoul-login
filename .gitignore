@@ -1,0 +1,5 @@
+# 调试截图只在 Actions 运行期使用，通过 artifact 下载，不提交进仓库
+debug/
+__pycache__/
+*.pyc
+.creds
