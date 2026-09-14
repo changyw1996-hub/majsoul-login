@@ -1,41 +1,65 @@
 name: Majsoul-Login
 on:
   workflow_dispatch:
-  schedule: #5:00
-   - cron: '0 21 * * *'
-   - cron: '0 9 * * *'
+  schedule:
+    # 北京时间 05:00 与 17:00（UTC 21:00 / 09:00）
+    # 每天两次：游戏维护期或偶发网络抖动时，仍有一次机会拿到当天签到
+    - cron: '0 21 * * *'
+    - cron: '0 9 * * *'
+
+# 运行结束要把 log.txt 提交回去（顺带避免 60 天无活动导致 Actions 被自动关闭）
+permissions:
+  contents: write
+
 jobs:
   login:
     name: Majsoul-Login
     runs-on: ubuntu-22.04
+    # Unity WebGL 客户端要联网下载资源包，单账号约 2~6 分钟，多账号请相应调大
+    timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Install Selenium
-        run: pip install selenium==4.17.2
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: python -m pip install "selenium==4.49.0" "pillow>=10.0"
 
       - name: Majsoul login
         run: python login.py ${{ secrets.EMAIL }} ${{ secrets.PASSWD }}
 
-      - name: Check log file  
-        run: |  
-          ls  
-          if [ -f "log.txt" ]; then  
-            cat log.txt  
-          else  
-            echo "log.txt not found!"  
-          fi  
+      - name: Show log
+        if: always()
+        run: |
+          ls -al
+          if [ -f "log.txt" ]; then tail -n 5 log.txt; else echo "log.txt not found!"; fi
 
+      - name: Upload debug screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: debug/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # 必须 always()：登录失败时也要把 Failed 记录写回 log.txt，
+      # 否则日志断档，且仓库长期无提交会被 GitHub 自动关闭 Actions
       - name: git config
+        if: always()
         run: |-
-         git config --global user.name "Github Actions"
-         git config --global user.email "actions@gmail.com"
-         
+          git config --global user.name "Github Actions"
+          git config --global user.email "actions@gmail.com"
+
       - name: Push
+        if: always()
         run: |-
-          git diff
           git status
           git add -A
-          git commit -m "update by github actions"
+          git diff --cached --quiet || git commit -m "update by github actions"
+          git pull --rebase --autostash origin ${GITHUB_REF_NAME}
           git push
